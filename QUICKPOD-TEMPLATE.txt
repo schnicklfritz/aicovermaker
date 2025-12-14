@@ -1,0 +1,86 @@
+# AICoverMaker QuickPod.io Template
+# Copy and paste these values into QuickPod.io template creation form
+
+## Basic Information
+Template Name: AICoverMaker - AI Audio Separation & Voice Conversion
+Docker Image: schnicklfritz/aicovermaker:latest
+Disk Space: 50GB (recommended for models)
+Description: AI-powered audio separation (python-audio-separator) and voice conversion (Applio) with GPU acceleration. Separate vocals/instruments and convert voices using RVC technology.
+
+## Advanced Configuration
+
+### Docker Options (copy everything below this line):
+```
+--gpus all \
+-p 7860:7860 \
+-p 8888:8888 \
+-p 22:22 \
+-e SSH_USERNAME=user \
+-e SSH_PASSWORD=changeme123 \
+-e JUPYTER_PASSWORD=changeme123 \
+-e PUID=1000 \
+-e PGID=1000 \
+-e TZ=Etc/UTC \
+-e NVIDIA_VISIBLE_DEVICES=all \
+-e NVIDIA_DRIVER_CAPABILITIES=all \
+-v /workspace:/app/data \
+-v /models:/app/models \
+--shm-size=2gb
+```
+
+### Launch Mode:
+SSH Entry (recommended for development) OR Docker Entrypoint
+
+### Docker Entrypoint Run Options (if using Docker Entrypoint):
+```
+# For audio separation:
+separator --input /app/data/input.mp3 --output_dir /app/data/output --model_name htdemucs
+
+# For voice conversion web UI:
+applio
+```
+
+### On Start Scripts:
+```
+#!/bin/bash
+echo "Setting up AICoverMaker environment..."
+
+# Create necessary directories
+mkdir -p /app/data /app/models /app/output
+
+# Download default models (optional)
+# wget https://example.com/models.zip -O /app/models/models.zip
+# unzip /app/models/models.zip -d /app/models/
+
+echo "AICoverMaker ready! Use 'separator' command for audio separation or 'applio' for voice conversion web UI."
+```
+
+## Usage Instructions
+
+### After deployment:
+1. **SSH Access**: Connect via SSH using username/password above
+2. **Web Interfaces**:
+   - Applio Voice Conversion: http://[your-instance]:7860
+   - Jupyter (if enabled): http://[your-instance]:8888
+3. **Basic Commands**:
+   ```bash
+   # Audio separation
+   separator --input /app/data/song.mp3 --output_dir /app/data/separated --model_name htdemucs
+   
+   # Voice conversion (web UI)
+   applio
+   ```
+
+### Volume Mounts:
+- `/app/data`: Input/output audio files
+- `/app/models`: AI models (persistent storage recommended)
+
+### Available Models:
+- Separation: uvr_vocals, uvr_instrumental, htdemucs, mdx_extra
+- Voice Conversion: Pre-trained and custom RVC models
+
+## Notes
+- Requires NVIDIA GPU with CUDA support
+- First run may download models (2-10GB)
+- Use `--shm-size=2gb` for better performance with large models
+- Adjust disk space based on your dataset size
