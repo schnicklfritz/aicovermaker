@@ -59,8 +59,13 @@ jobs:
           ${{ env.DOCKERHUB_NAMESPACE }}/aicovermaker:latest
           ${{ env.DOCKERHUB_NAMESPACE }}/aicovermaker:${{ github.sha }}
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-        cache-from: type=registry,ref=${{ env.DOCKERHUB_NAMESPACE }}/aicovermaker:buildcache
+        cache-from: |
+          type=registry,ref=${{ env.DOCKERHUB_NAMESPACE }}/aicovermaker:buildcache
+          type=registry,ref=${{ env.DOCKERHUB_NAMESPACE }}/aicovermaker:latest
         cache-to: type=registry,ref=${{ env.DOCKERHUB_NAMESPACE }}/aicovermaker:buildcache,mode=max
+        # Build arguments to control build behavior
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
 
     - name: Display success message
       run: |
