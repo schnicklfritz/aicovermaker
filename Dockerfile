@@ -39,8 +39,12 @@ RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf && \
 # Upgrade pip and setuptools
 RUN python3 -m pip install --upgrade pip setuptools wheel
 
-# Install common Python dependencies for both projects
-RUN pip install \
+# Create virtual environments for each project
+RUN python3 -m venv /app/venv/separator && \
+    python3 -m venv /app/venv/applio
+
+# Install common Python dependencies in both virtual environments
+RUN /app/venv/separator/bin/pip install \
     numpy==1.26.4 \
     requests==2.31.0 \
     tqdm \
@@ -54,62 +58,86 @@ RUN pip install \
     stftpitchshift \
     soxr
 
-# Install python-audio-separator with explicit dependencies
+RUN /app/venv/applio/bin/pip install \
+    numpy==1.26.4 \
+    requests==2.31.0 \
+    tqdm \
+    wget \
+    ffmpeg-python==0.2.0 \
+    librosa==0.11.0 \
+    scipy==1.11.1 \
+    soundfile==0.12.1 \
+    noisereduce \
+    pedalboard \
+    stftpitchshift \
+    soxr
+
+# Install python-audio-separator with explicit dependencies in its own virtual environment
 RUN git clone https://github.com/schnicklfritz/python-audio-separator.git /app/python-audio-separator || \
     (sleep 5 && git clone https://github.com/schnicklfritz/python-audio-separator.git /app/python-audio-separator) || \
     (sleep 10 && git clone https://github.com/schnicklfritz/python-audio-separator.git /app/python-audio-separator)
 WORKDIR /app/python-audio-separator
-# Try to install from setup.py or pyproject.toml, fallback to manual install
-RUN if [ -f "setup.py" ]; then \
-        pip install -e .; \
-    elif [ -f "pyproject.toml" ]; then \
-        pip install -e .; \
-    else \
-        echo "No setup.py or pyproject.toml found, installing common audio separation dependencies"; \
-        pip install demucs torchaudio; \
-    fi
+# Install in separator virtual environment
+RUN /app/venv/separator/bin/pip install -e . || \
+    (echo "Installation from repo failed, installing common audio separation dependencies" && \
+     /app/venv/separator/bin/pip install demucs torchaudio)
 
-# Install Applio with specific version handling
+# Install Applio with specific version handling in its own virtual environment
 WORKDIR /app
 RUN git clone https://github.com/schnicklfritz/Applio.git /app/Applio || \
     (sleep 5 && git clone https://github.com/schnicklfritz/Applio.git /app/Applio) || \
     (sleep 10 && git clone https://github.com/schnicklfritz/Applio.git /app/Applio)
 WORKDIR /app/Applio
-# Install requirements with error handling
+# Install requirements in applio virtual environment
 RUN if [ -f "requirements.txt" ]; then \
-        pip install -r requirements.txt || echo "Some requirements failed, continuing..."; \
+        /app/venv/applio/bin/pip install -r requirements.txt || echo "Some requirements failed, continuing..."; \
     else \
         echo "No requirements.txt found"; \
     fi
 
-# Install PyTorch with CUDA support (required by both projects) with retry
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 || \
-    (sleep 10 && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118) || \
-    (sleep 30 && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118)
+# Install PyTorch with CUDA 12.1 support (compatible with CUDA 12.8) in both virtual environments
+RUN /app/venv/separator/bin/pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 || \
+    (sleep 10 && /app/venv/separator/bin/pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121) || \
+    (sleep 30 && /app/venv/separator/bin/pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121)
 
-# Install additional dependencies that might be missing
-RUN pip install \
+RUN /app/venv/applio/bin/pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 || \
+    (sleep 10 && /app/venv/applio/bin/pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121) || \
+    (sleep 30 && /app/venv/applio/bin/pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121)
+
+# Install additional dependencies that might be missing including CUDA 12 compatible onnxruntime
+RUN /app/venv/separator/bin/pip install \
     faiss-cpu==1.7.3 \
     PyYAML \
     gradio \
     transformers \
-    accelerate
+    accelerate \
+    onnxruntime-gpu==1.17.1
 
-# Create a wrapper script to run both applications
+RUN /app/venv/applio/bin/pip install \
+    faiss-cpu==1.7.3 \
+    PyYAML \
+    gradio \
+    transformers \
+    accelerate \
+    onnxruntime-gpu==1.17.1
+
+# Create a wrapper script to run both applications using their respective virtual environments
 WORKDIR /app
 RUN echo '#!/bin/bash\n\
 # AICoverMaker wrapper script\n\
 # This script can run either python-audio-separator or Applio\n\
-# based on the command provided\n\
+# using their respective virtual environments\n\
 \n\
 if [ "$1" = "separator" ]; then\n\
     shift\n\
     cd /app/python-audio-separator\n\
-    python3 -m audio_separator "$@"\n\
+    source /app/venv/separator/bin/activate\n\
+    python -m audio_separator "$@"\n\
 elif [ "$1" = "applio" ]; then\n\
     shift\n\
     cd /app/Applio\n\
-    python3 app.py "$@"\n\
+    source /app/venv/applio/bin/activate\n\
+    python app.py "$@"\n\
 else\n\
     echo "Usage: $0 {separator|applio} [args...]"\n\
     echo "  separator: Run python-audio-separator"\n\
@@ -118,17 +146,20 @@ else\n\
 fi' > /usr/local/bin/aicovermaker && \
     chmod +x /usr/local/bin/aicovermaker
 
-# Create test script to verify installation
+# Create test script to verify installation in both virtual environments
 RUN echo '#!/bin/bash\n\
 echo "Testing AICoverMaker installation..."\n\
-echo "1. Checking Python version..."\n\
-python3 --version\n\
-echo "2. Checking PyTorch CUDA availability..."\n\
-python3 -c "import torch; print(f\"PyTorch version: {torch.__version__}\"); print(f\"CUDA available: {torch.cuda.is_available()}\")"\n\
-echo "3. Checking python-audio-separator..."\n\
-cd /app/python-audio-separator && python3 -c "import audio_separator; print(\"audio_separator imported successfully\")" 2>/dev/null || echo "audio_separator import failed"\n\
-echo "4. Checking Applio..."\n\
-cd /app/Applio && python3 -c "import app; print(\"Applio imported successfully\")" 2>/dev/null || echo "Applio import failed"\n\
+echo "1. Checking Python versions..."\n\
+/app/venv/separator/bin/python --version\n\
+/app/venv/applio/bin/python --version\n\
+echo "2. Checking PyTorch CUDA availability in separator environment..."\n\
+/app/venv/separator/bin/python -c "import torch; print(f\"PyTorch version: {torch.__version__}\"); print(f\"CUDA available: {torch.cuda.is_available()}\")"\n\
+echo "3. Checking PyTorch CUDA availability in applio environment..."\n\
+/app/venv/applio/bin/python -c "import torch; print(f\"PyTorch version: {torch.__version__}\"); print(f\"CUDA available: {torch.cuda.is_available()}\")"\n\
+echo "4. Checking python-audio-separator..."\n\
+cd /app/python-audio-separator && /app/venv/separator/bin/python -c "import audio_separator; print(\"audio_separator imported successfully\")" 2>/dev/null || echo "audio_separator import failed"\n\
+echo "5. Checking Applio..."\n\
+cd /app/Applio && /app/venv/applio/bin/python -c "import app; print(\"Applio imported successfully\")" 2>/dev/null || echo "Applio import failed"\n\
 echo "Installation test complete!"' > /usr/local/bin/test-aicovermaker && \
     chmod +x /usr/local/bin/test-aicovermaker
 
