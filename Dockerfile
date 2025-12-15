@@ -9,8 +9,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies with retry logic
+RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf && \
+    echo "nameserver 8.8.4.4" >> /etc/resolv.conf && \
+    apt-get update || (sleep 5 && apt-get update) || (sleep 10 && apt-get update) && \
+    apt-get install -y --no-install-recommends \
     # Python and build tools
     python3 \
     python3-dev \
@@ -52,7 +55,9 @@ RUN pip install \
     soxr
 
 # Install python-audio-separator with explicit dependencies
-RUN git clone https://github.com/schnicklfritz/python-audio-separator.git /app/python-audio-separator
+RUN git clone https://github.com/schnicklfritz/python-audio-separator.git /app/python-audio-separator || \
+    (sleep 5 && git clone https://github.com/schnicklfritz/python-audio-separator.git /app/python-audio-separator) || \
+    (sleep 10 && git clone https://github.com/schnicklfritz/python-audio-separator.git /app/python-audio-separator)
 WORKDIR /app/python-audio-separator
 # Try to install from setup.py or pyproject.toml, fallback to manual install
 RUN if [ -f "setup.py" ]; then \
@@ -66,7 +71,9 @@ RUN if [ -f "setup.py" ]; then \
 
 # Install Applio with specific version handling
 WORKDIR /app
-RUN git clone https://github.com/schnicklfritz/Applio.git /app/Applio
+RUN git clone https://github.com/schnicklfritz/Applio.git /app/Applio || \
+    (sleep 5 && git clone https://github.com/schnicklfritz/Applio.git /app/Applio) || \
+    (sleep 10 && git clone https://github.com/schnicklfritz/Applio.git /app/Applio)
 WORKDIR /app/Applio
 # Install requirements with error handling
 RUN if [ -f "requirements.txt" ]; then \
@@ -75,8 +82,10 @@ RUN if [ -f "requirements.txt" ]; then \
         echo "No requirements.txt found"; \
     fi
 
-# Install PyTorch with CUDA support (required by both projects)
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# Install PyTorch with CUDA support (required by both projects) with retry
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 || \
+    (sleep 10 && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118) || \
+    (sleep 30 && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118)
 
 # Install additional dependencies that might be missing
 RUN pip install \
